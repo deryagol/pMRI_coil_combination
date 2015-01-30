@@ -1,9 +1,14 @@
-% Demo for Subspace based coil combination approach for parallel MRI
+% Demo for Subspace based coil combination approach for phased-array MRI
+
+% Spine dataset can be obtained from PULSAR toolbox
+% (http://bi.tamu.edu/software/downloads_software.htm)
+% subfunctions: crop.m, sos.m, sos_kspace.m can be obtained from 
+% Michael Lustig's SPIRiT package (http://www.eecs.berkeley.edu/~mlustig/Software.html)
 
 % Derya Gol Gungor
-% golgungor.1@osu.edu
+% deryagol@gmail.com
 % The Ohio State University
-% Updated: May 2014
+% Updated: Jan 2015
 
 
 clear all; close all;
@@ -13,7 +18,7 @@ disp('~~~ Demo for subspace based coil combination approach ~~~')
 
 %Spine dataset from PULSAR
 disp('Loading data ...')
-load('data_spine')
+load('data_spine') % This data can be obtained from PULSAR toolbox
 DATA_full=full_kspace_data; clear full_kspace_data
 %% Parameters
 samp=logical(abs(DATA_full)); %sampling pattern
@@ -21,7 +26,8 @@ samp=logical(abs(DATA_full)); %sampling pattern
 kSize=[5 5]; % 2D Kernel size
 apply_to_ACS=1;
 nCalib=60; % ACS region size
-alpha=[1 0.5 0]; % Exponent value of singular values
+alpha=[1 0]; % Exponent value of singular values
+% Note that alpha=1 refers to SCC, alpha=0 refers to proposed BCC
 
 %% SoS coil combine
 sos_coil=sos_kspace(DATA_full,3);
@@ -52,9 +58,10 @@ end
 tic;
 %Calibration matrix
 disp('Construting calibration matrix...')
-Y=ptl_convmtx2(yc(:,:,1),[1 MM],[1 NN],kSize(1),kSize(2));
-for i=2:K
-    Y=[Y ptl_convmtx2(yc(:,:,i),[1 MM],[1 NN],kSize(1),kSize(2))]; %2D partial convolution matrix
+Y=zeros(MM*NN,prod(kSize)*K);
+for i=1:K
+    yy=padarray(yc(:,:,i),[kSize(1)-1 kSize(2)-1],'circular','pre');
+    Y(:,(i-1)*prod(kSize)+1:i*prod(kSize))=ptl_convmtx2(yy,[kSize(1) MM+kSize(1)-1],[kSize(2) NN+kSize(2)-1],kSize(1),kSize(2));
 end
 
 %Singular value decomposition
@@ -64,6 +71,8 @@ s=diag(S);
 diff=s(1)-s(end);
 threshold=0.05*diff;
 r=length(find(s>=threshold)); %estimated rank of Y
+figure; plot(s); hold on; plot([r r],[0 max(s)],'r');
+title('Singular values (blue), Threshold (red)')
 
 if apply_to_ACS
     % SoS low-resolution image
@@ -104,23 +113,25 @@ for j=1:length(alpha); %exponent of the singular values
         Iunmodulated=Iunmodulated/norm(Iunmodulated);
         combined_img_acs(:,:,j)=Iunmodulated;
         mmap=[mmap rot90(modulation_map,3)];
-        if j==1
-            title_tmp='';
-        end
-        title_tmp=strcat(title_tmp,'  S\alphaS_C (\alpha=',num2str(alpha(j)),') ,');
-        title_tmp2=strcat(title_tmp2,' \alpha=',num2str(alpha(j)),', ');
         img_disp2=[img_disp2 rot90(combined_img_acs(:,:,j),3)];
-    else
-        title_tmp=strcat(title_tmp,'  S\alphaS (\alpha=',num2str(alpha(j)),') ,');
     end
 end
+
+if apply_to_ACS
+    title_tmp=' SCC efficient, BCC efficient';
+    title_tmp2=' SCC (\alpha=1), BCC (\alpha=0)';
+else
+    title_tmp=' SCC, BCC';
+end
+
+    
 
 disp('Done!')
 toc;
 
 %%  Display results
 if apply_to_ACS
-    title(strcat('Low resolution S\alphaS : ',title_tmp2));
+    title(strcat('Low resolution : ',title_tmp2));
     h=figure;   set(h,'Position',[ 129  136 1347  375]);
     imagesc(abs(mmap),[0 0.4*max(abs(mmap(:)))]); colormap gray; axis image off;title(strcat('Modulation map : ',title_tmp2));
     
